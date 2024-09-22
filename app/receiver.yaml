@@ -1,0 +1,95 @@
+# create webhook-token secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: webhook-token
+  namespace: default
+type: Opaque
+stringData:
+  # this secret is not being used
+  # but it is required by the notification-controller
+  # as flux doesn't support receivers without a secret
+  # so we are providing a dummy one
+  token: "test"
+---
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata:
+  name: image-push-webhook-receiver
+  namespace: default
+spec:
+  type: generic
+  resources:
+    - apiVersion: image.toolkit.fluxcd.io/v1beta2
+      kind: ImageRepository
+      name: flask-app
+      namespace: default
+  secretRef:
+    name: webhook-token
+    
+---
+
+apiVersion: notification.toolkit.fluxcd.io/v1
+kind: Receiver
+metadata:
+  name: git-push-webhook-receiver
+  namespace: default
+spec:
+  type: generic
+  resources:
+    - apiVersion: source.toolkit.fluxcd.io/v1
+      kind: GitRepository
+      name: flux-system
+      namespace: flux-system
+  secretRef:
+    name: webhook-token
+
+---
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: flux-webhook-receiver
+  labels:
+    name: flux-webhook-receiver
+  namespace: flux-system
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: flux-receiver.k9.askjimrohn.com
+      http:
+        paths:
+          # git push receiver
+          - pathType: Prefix
+            path: /hook/464149782d6bc5b992baa7308fbcfcd0588a8ced62774dc0cec45f9f9eb1e785
+            backend:
+              service:
+                name: webhook-receiver
+                port:
+                  number: 80
+          - pathType: Prefix
+            path: /hook/313213c23ad0e5215b2f030d1188d71b33b923a728ecc452dcaa50386d376128
+            backend:
+              service:
+                name: webhook-receiver
+                port:
+                  number: 80
+  tls:
+    - hosts:
+        - "*.k8.askjimrohn.com"
+      secretName: flask-app-k9-askjimrohn
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-all-to-webhook
+  namespace: flux-system
+spec:
+  policyTypes:
+    - Ingress
+  podSelector:
+    matchLabels:
+      app: "notification-controller"
+  ingress:
+    - {}
